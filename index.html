@@ -121,7 +121,7 @@
 <script>
 (function() {
   // ========== 配置：你的 Cloudflare Worker 地址 ==========
-  var WORKER_URL = 'https://divine-butterfly-0786.yangpan2609.workers.dev';
+  var WORKER_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
 
   var textInput = document.getElementById('textInput');
   var extractBtn = document.getElementById('extractBtn');
@@ -233,29 +233,31 @@
 
   // ============ AI 摘要（调用智谱 Worker） ============
   async function summarizeWithAI(text) {
-    var response = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'glm-4.7-flash',
-        messages: [
-          { role: 'system', content: '你是一个专业的文本摘要助手。请用简洁的中文总结以下文本的主要内容，控制在150字以内，直接输出总结内容，不要加任何前缀。' },
-          { role: 'user', content: text }
-        ],
-        stream: false
-      })
-    });
+  var response = await fetch(WORKER_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': 'Bearer c3ccc8c352854994951c2bf0b8d36069.7OSm7YGBY00kVGVV'
+    },
+    body: JSON.stringify({
+      model: 'glm-4.7-flash',
+      messages: [
+        { role: 'system', content: '你是一个专业的文本摘要助手。请用简洁的中文总结以下文本的主要内容，控制在150字以内，直接输出总结内容，不要加任何前缀。' },
+        { role: 'user', content: text }
+      ],
+      stream: false
+    })
+  });
 
-    if (!response.ok) {
-      throw new Error('HTTP ' + response.status);
-    }
-    var data = await response.json();
-    if (!data.choices || !data.choices[0]) {
-      throw new Error('返回数据异常');
-    }
-    return data.choices[0].message.content;
+  if (!response.ok) {
+    throw new Error('HTTP ' + response.status);
   }
-
+  var data = await response.json();
+  if (!data.choices || !data.choices[0]) {
+    throw new Error('返回数据异常');
+  }
+  return data.choices[0].message.content;
+}
   // ============ 事件绑定 ============
   extractBtn.addEventListener('click', function() {
     var text = textInput.value;
