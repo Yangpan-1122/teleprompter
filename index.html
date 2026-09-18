@@ -232,6 +232,7 @@
   }
 
   // ============ 文本摘要（改进版，动态选句） ============
+    // ============ 文本摘要（多维度打分版） ============
   function summarize(text) {
     if (!text || !text.trim()) return '';
 
@@ -245,7 +246,7 @@
     if (sentences.length === 0) return text.slice(0, 120);
     if (sentences.length <= 2) return sentences.join('');
 
-    // 2. 根据句子总数动态决定抽取多少句
+    // 2. 动态决定抽取句数
     var total = sentences.length;
     var pickCount;
     if (total <= 4) pickCount = 2;
@@ -265,54 +266,102 @@
       }
     }
 
-    // 4. 信号词 / 官方声明词
+    // 4. 信号词 / 官方声明词 / 转折词
     var SIGNAL = ['提出','报告','意味着','首次','核心','方向','认为','强调',
                   '主张','例如','比如','表示','指出','显示','表明','发现',
                   '构建','探索','实现','路径','概念','框架','趋势','挑战'];
     var OFFICIAL = ['主办','承办','协办','支持','论坛由','冠名','赞助','出席',
                     '致辞','主持','召开','举办','合影','合影留念'];
+    var TURN = ['但是','然而','因此','所以','不过','却','反而','总之','综上',
+                '换言之','换句话说','更重要的是','关键在于'];
 
-    // 5. 给每句打分
+    // 5. 多维度打分
     var scored = sentences.map(function(s, idx) {
-      var score = 0;
       var chars = s.match(/[\u4e00-\u9fa5]|[a-zA-Z0-9]+/g) || [];
-
-      // 5.1 词频得分（归一化）
-      for (var k = 0; k < chars.length; k++) {
-        if (!STOP.has(chars[k])) score += (freq[chars[k]] || 0);
-      }
-      score = score / Math.max(chars.length, 1);
-
-      // 5.2 信号词加分
-      for (var m = 0; m < SIGNAL.length; m++) {
-        if (s.indexOf(SIGNAL[m]) !== -1) score += 1.2;
-      }
-
-      // 5.3 官方声明词降权
-      for (var n = 0; n < OFFICIAL.length; n++) {
-        if (s.indexOf(OFFICIAL[n]) !== -1) score -= 5;
-      }
-
-      // 5.4 位置加权
-      var posRatio = idx / sentences.length;
-      if (posRatio < 0.33) score += 1.0;
-      else if (posRatio < 0.66) score += 0.4;
-
-      // 5.5 长度惩罚
       var len = s.length;
-      if (len < 15) score -= 1.5;
-      else if (len > 120) score -= 0.8;
 
-      return { sentence: s, score: score, index: idx };
+      // 维度一：词频得分（归一化）
+      var scoreFreq = 0;
+      for (var k = 0; k < chars.length; k++) {
+        if (!STOP.has(chars[k])) scoreFreq += (freq[chars[k]] || 0);
+      }
+      scoreFreq = scoreFreq / Math.max(chars.length, 1);
+
+      // 维度二：信号词得分
+      var scoreSignal = 0;
+      for (var m = 0; m < SIGNAL.length; m++) {
+        if (s.indexOf(SIGNAL[m]) !== -1) scoreSignal += 1.2;
+      }
+
+      // 维度三：官方声明词降权
+      var scoreOfficial = 0;
+      for (var n = 0; n < OFFICIAL.length; n++) {
+        if (s.indexOf(OFFICIAL[n]) !== -1) scoreOfficial -= 5;
+      }
+
+      // 维度四：转折词加分
+      var scoreTurn = 0;
+      for (var t = 0; t < TURN.length; t++) {
+        if (s.indexOf(TURN[t]) !== -1) scoreTurn += 1.5;
+      }
+
+      // 维度五：位置加权（首尾句是主旨高发区）
+      var posRatio = idx / sentences.length;
+      var scorePos = 0;
+      if (posRatio < 0.2) scorePos += 1.2;          // 开头 20%
+      else if (posRatio < 0.4) scorePos += 0.6;     // 开头 20%~40%
+      else if (posRatio > 0.8) scorePos += 0.8;     // 结尾 20%
+
+      // 维度六：长度惩罚
+      var scoreLen = 0;
+      if (len < 15) scoreLen -= 1.5;
+      else if (len > 120) scoreLen -= 0.8;
+      else if (len >= 30 && len <= 80) scoreLen += 0.5; // 适中长度加分
+
+      // 综合得分（各维度加权求和）
+      var totalScore =
+        scoreFreq * 0.35 +       // 词频权重最高
+        scoreSignal * 1.0 +      // 信号词很重要
+        scoreTurn * 0.8 +        // 转折词较重要
+        scorePos * 0.6 +         // 位置中等权重
+        scoreOfficial * 1.0 +    // 官方词直接降权
+        scoreLen * 0.5;          // 长度辅助
+
+      return { sentence: s, score: totalScore, index: idx };
     });
 
-    // 6. 选 top N 句，按原文顺序拼接
+    // 6. 选 top N 句，但要避免内容重复（多样性维度）
     scored.sort(function(a, b) { return b.score - a.score; });
-    var topN = Math.min(pickCount, scored.length);
-    var picked = scored.slice(0, topN);
-    picked.sort(function(a, b) { return a.index - b.index; });
 
+    var picked = [];
+    for (var p = 0; p < scored.length && picked.length < pickCount; p++) {
+      var candidate = scored[p];
+      var isDuplicate = false;
+      for (var q = 0; q < picked.length; q++) {
+        // 如果两句有超过 60% 的字重复，视为重复
+        if (similarity(candidate.sentence, picked[q].sentence) > 0.6) {
+          isDuplicate = true;
+          break;
+        }
+      }
+      if (!isDuplicate) picked.push(candidate);
+    }
+
+    // 7. 按原文顺序拼接
+    picked.sort(function(a, b) { return a.index - b.index; });
     return picked.map(function(item) { return item.sentence; }).join('');
+  }
+
+  // 计算两句相似度（基于字符集合的 Jaccard 系数）
+  function similarity(a, b) {
+    var setA = new Set(a.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ''));
+    var setB = new Set(b.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ''));
+    var intersection = 0;
+    setA.forEach(function(ch) {
+      if (setB.has(ch)) intersection++;
+    });
+    var union = setA.size + setB.size - intersection;
+    return union === 0 ? 0 : intersection / union;
   }
 
   // ============ 事件绑定 ============
