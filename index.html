@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AI 词组提取器</title>
+<title>AI 文本分析工具</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
@@ -24,7 +24,7 @@
   }
   .sub { color: #5a7a99; font-size: .95rem; margin-bottom: 1.5rem; }
   textarea {
-    width: 100%; min-height: 160px; padding: 1.2rem;
+    width: 100%; min-height: 150px; padding: 1.2rem;
     border-radius: 1.5rem; border: 1.5px solid #d9e6f2;
     font-size: 1rem; line-height: 1.6; font-family: inherit;
     resize: vertical; color: #0b2b3f;
@@ -41,17 +41,30 @@
     font-size: .95rem; font-weight: 500; cursor: pointer;
     color: #1e3f60; font-family: inherit; transition: .15s;
   }
-  button.primary {
-    background: #1e4f7a; border-color: #1e4f7a; color: #fff;
-  }
+  button.primary { background: #1e4f7a; border-color: #1e4f7a; color: #fff; }
   button.primary:hover { background: #0e3b5e; }
-  button:not(.primary):hover { background: #e9f0f8; }
+  button.summary { background: #2e7d5e; border-color: #2e7d5e; color: #fff; }
+  button.summary:hover { background: #1f5e45; }
+  button:not(.primary):not(.summary):hover { background: #e9f0f8; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
   .slider {
     display: flex; align-items: center; gap: .8rem;
     background: #e8f0f9; padding: .4rem 1rem; border-radius: 40px;
     font-size: .9rem; color: #1e4a72;
   }
   input[type=range] { width: 120px; }
+  .panel {
+    margin-top: 2rem; padding: 1.2rem 1.5rem;
+    background: #f0faf5; border-radius: 1.5rem;
+    border: 1px solid #c8e6d5;
+  }
+  .panel h2 {
+    font-size: 1.15rem; color: #1f5e45; margin-bottom: .8rem;
+  }
+  .summary-text {
+    font-size: 1rem; line-height: 1.8; color: #1a3f30;
+    white-space: pre-wrap;
+  }
   .results { margin-top: 2rem; }
   .results h2 { font-size: 1.2rem; color: #173f5c; margin-bottom: 1rem; }
   .item {
@@ -73,14 +86,15 @@
 </head>
 <body>
 <div class="container">
-  <h1><span>AI</span>词组提取器</h1>
-  <p class="sub">🔍 根据文本内容，抓取出现次数较多的词组</p>
+  <h1><span>AI</span>文本分析工具</h1>
+  <p class="sub">🔍 提取高频词组 · 📝 AI 智能总结</p>
 
   <textarea id="textInput" placeholder="在此粘贴文本...">人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。</textarea>
 
   <div class="bar">
     <div class="btns">
       <button class="primary" id="extractBtn">⚡ 提取高频词组</button>
+      <button class="summary" id="summaryBtn">📝 总结主要内容</button>
       <button id="clearBtn">🧹 清空</button>
       <button id="exampleBtn">📋 示例</button>
     </div>
@@ -91,24 +105,62 @@
     </div>
   </div>
 
+  <div class="panel" id="summaryPanel" style="display:none;">
+    <h2>📝 内容总结</h2>
+    <div class="summary-text" id="summaryText"></div>
+  </div>
+
   <div class="results">
     <h2 id="statsText">📊 高频词组</h2>
     <div id="phrasesGrid">
-      <div class="empty">点击「提取高频词组」查看结果</div>
+      <div class="empty">点击按钮查看结果</div>
     </div>
   </div>
 </div>
 
 <script>
 (function() {
+  // ========== 配置：你的 Cloudflare Worker 地址 ==========
+  var WORKER_URL = 'https://divine-butterfly-0786.yangpan2609.workers.dev';
+
   var textInput = document.getElementById('textInput');
   var extractBtn = document.getElementById('extractBtn');
+  var summaryBtn = document.getElementById('summaryBtn');
   var clearBtn = document.getElementById('clearBtn');
   var exampleBtn = document.getElementById('exampleBtn');
   var minCountSlider = document.getElementById('minCount');
   var minCountValue = document.getElementById('minCountValue');
   var phrasesGrid = document.getElementById('phrasesGrid');
   var statsText = document.getElementById('statsText');
+  var summaryPanel = document.getElementById('summaryPanel');
+  var summaryText = document.getElementById('summaryText');
+
+  // 内置常用词表
+  var DICT = new Set([
+    '人工智能','智能','人工','技术','应用','领域','生活','便捷','机器','学习',
+    '核心','深度','推动','发展','自然','语言','处理','重要','方向','未来','充满',
+    '无限','可能','语音','助手','计算','视觉','典型','数据','紧密','结合','伦理',
+    '受到','关注','改变','世界','各个','方便','我们','他们','自己','可以','已经',
+    '正在','一个','一些','很多','非常','特别','因为','所以','但是','如果','就是',
+    '机器人','互联网','大数据','云计算','计算机','机器学习','深度学习',
+    '自然语言','计算机视觉','语音助手','无限可能','紧密结合','越来越'
+  ]);
+
+  var STOP = new Set(['的','了','是','在','和','就','都','也','还','与','及','或','而',
+    '被','把','让','使','对','从','到','向','为','以','之','其','这','那','有','无',
+    '不','很','更','最','会','能','要','可','等','着','过','吗','呢','吧','啊','正','在']);
+
+  function isRealWord(str) {
+    if (str.length < 2 || str.length > 5) return false;
+    if (STOP.has(str[0]) || STOP.has(str[str.length - 1])) return false;
+    if (DICT.has(str)) return true;
+    if (str.indexOf('人工智能') !== -1) return true;
+    if (str.indexOf('智能') !== -1 && str.length <= 4) return true;
+    if (str.indexOf('机器') !== -1 || str.indexOf('学习') !== -1) return true;
+    if (str.indexOf('数据') !== -1 || str.indexOf('计算') !== -1) return true;
+    if (str.indexOf('技术') !== -1 || str.indexOf('应用') !== -1) return true;
+    return false;
+  }
 
   minCountSlider.addEventListener('input', function() {
     minCountValue.textContent = minCountSlider.value;
@@ -116,48 +168,35 @@
 
   clearBtn.addEventListener('click', function() {
     textInput.value = '';
-    phrasesGrid.innerHTML = '<div class="empty">点击「提取高频词组」查看结果</div>';
+    phrasesGrid.innerHTML = '<div class="empty">点击按钮查看结果</div>';
     statsText.textContent = '📊 高频词组';
+    summaryPanel.style.display = 'none';
   });
 
   exampleBtn.addEventListener('click', function() {
-    textInput.value = '人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。智能语音助手、计算机视觉都是人工智能的典型应用。';
+    textInput.value = '人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。智能语音助手、计算机视觉都是人工智能的典型应用。人工智能与大数据、云计算紧密结合。人工智能伦理也越来越受到关注。';
   });
 
+  // ============ 词组提取 ============
   function extractPhrases(text, minCount) {
     if (!text || !text.trim()) return [];
-
-    // 1. 清洗：保留中文、英文、数字，其余转空格
-    var clean = text.toLowerCase()
-      .replace(/[^\u4e00-\u9fa5a-z0-9\s]/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-
-    // 2. 切分：中文按"字"处理，英文数字按"单词"处理
+    var clean = text.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, '');
+    if (!clean) return [];
     var tokens = [];
-    // 匹配连续中文 或 连续英文数字
-    var regex = /[\u4e00-\u9fa5]|[a-z0-9]+/g;
+    var regex = /[\u4e00-\u9fa5]|[a-zA-Z0-9]+/g;
     var match;
-    while ((match = regex.exec(clean)) !== null) {
-      tokens.push(match[0]);
-    }
-    if (tokens.length === 0) return [];
+    while ((match = regex.exec(clean)) !== null) tokens.push(match[0]);
+    if (tokens.length < 2) return [];
 
-    // 3. 统计 2~5 个连续 token 组成的词组
     var map = {};
     for (var n = 2; n <= 5; n++) {
       if (tokens.length < n) continue;
       for (var i = 0; i <= tokens.length - n; i++) {
         var phrase = tokens.slice(i, i + n).join('');
-        // 英文单词之间保留空格更易读，中文直接拼接
-        if (/^[a-z0-9]+$/.test(tokens[i])) {
-          phrase = tokens.slice(i, i + n).join(' ');
-        }
+        if (!isRealWord(phrase)) continue;
         map[phrase] = (map[phrase] || 0) + 1;
       }
     }
-
-    // 4. 过滤 + 排序
     var result = [];
     for (var key in map) {
       if (map[key] >= minCount) result.push({ phrase: key, count: map[key] });
@@ -192,11 +231,58 @@
     }
   }
 
+  // ============ AI 摘要（调用智谱 Worker） ============
+  async function summarizeWithAI(text) {
+    var response = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'glm-4.7-flash',
+        messages: [
+          { role: 'system', content: '你是一个专业的文本摘要助手。请用简洁的中文总结以下文本的主要内容，控制在150字以内，直接输出总结内容，不要加任何前缀。' },
+          { role: 'user', content: text }
+        ],
+        stream: false
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error('HTTP ' + response.status);
+    }
+    var data = await response.json();
+    if (!data.choices || !data.choices[0]) {
+      throw new Error('返回数据异常');
+    }
+    return data.choices[0].message.content;
+  }
+
+  // ============ 事件绑定 ============
   extractBtn.addEventListener('click', function() {
     var text = textInput.value;
     var minCount = parseInt(minCountSlider.value, 10) || 2;
-    var phrases = extractPhrases(text, minCount);
-    render(phrases);
+    render(extractPhrases(text, minCount));
+  });
+
+  summaryBtn.addEventListener('click', async function() {
+    var text = textInput.value;
+    if (!text.trim()) {
+      summaryPanel.style.display = 'block';
+      summaryText.textContent = '请先输入文本。';
+      return;
+    }
+
+    summaryPanel.style.display = 'block';
+    summaryText.textContent = '正在总结，请稍候...';
+    summaryBtn.disabled = true;
+
+    try {
+      var summary = await summarizeWithAI(text);
+      summaryText.textContent = summary;
+    } catch (e) {
+      summaryText.textContent = '总结失败：' + e.message + '\n\n请检查：\n1. Worker 地址是否已替换\n2. Worker 是否已部署并设置好 API Key\n3. 浏览器控制台是否有报错';
+    } finally {
+      summaryBtn.disabled = false;
+    }
   });
 })();
 </script>
