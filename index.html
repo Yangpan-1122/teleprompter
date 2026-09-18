@@ -233,6 +233,7 @@
 
   // ============ 文本摘要（改进版，动态选句） ============
     // ============ 文本摘要（多维度打分版） ============
+    // ============ 文本摘要（叙事结构版） ============
   function summarize(text) {
     if (!text || !text.trim()) return '';
 
@@ -243,17 +244,18 @@
       .map(function(s) { return s.trim(); })
       .filter(function(s) { return s.length >= 6; });
 
-    if (sentences.length === 0) return text.slice(0, 120);
+    if (sentences.length === 0) return text.slice(0, 150);
     if (sentences.length <= 2) return sentences.join('');
 
-    // 2. 动态决定抽取句数
     var total = sentences.length;
+
+    // 2. 动态抽取数量：原文越长抽越多
     var pickCount;
-    if (total <= 4) pickCount = 2;
-    else if (total <= 8) pickCount = 3;
-    else if (total <= 15) pickCount = 4;
-    else if (total <= 25) pickCount = 5;
-    else pickCount = 6;
+    if (total <= 4) pickCount = 3;
+    else if (total <= 8) pickCount = 4;
+    else if (total <= 15) pickCount = 6;
+    else if (total <= 25) pickCount = 8;
+    else pickCount = 10;
 
     // 3. 统计词频
     var freq = {};
@@ -266,102 +268,110 @@
       }
     }
 
-    // 4. 信号词 / 官方声明词 / 转折词
-    var SIGNAL = ['提出','报告','意味着','首次','核心','方向','认为','强调',
-                  '主张','例如','比如','表示','指出','显示','表明','发现',
-                  '构建','探索','实现','路径','概念','框架','趋势','挑战'];
-    var OFFICIAL = ['主办','承办','协办','支持','论坛由','冠名','赞助','出席',
-                    '致辞','主持','召开','举办','合影','合影留念'];
-    var TURN = ['但是','然而','因此','所以','不过','却','反而','总之','综上',
-                '换言之','换句话说','更重要的是','关键在于'];
+    // 4. 叙事结构信号词
+    // 起因：背景、问题、提出、首次、旨在、起因、源于
+    var CAUSE = ['提出','首次','旨在','源于','背景','起因','问题','挑战','需求',
+                 '报告','论坛','会议','研究发现','调查','显示','指出','表明'];
+    // 经过：围绕、构建、通过、采用、开展、推进、探索、设计、研发、应用
+    var PROCESS = ['围绕','构建','通过','采用','开展','推进','探索','设计','研发',
+                   '应用','结合','结合了','基于','聚焦','致力于','推动','实现','形成'];
+    // 结果：意味着、表明、将、未来、预计、有望、最终、结论、成果、价值、意义
+    var RESULT = ['意味着','表明','将','未来','预计','有望','最终','结论','成果',
+                  '价值','意义','影响','带来','推动','促进','提升','改善','改变'];
 
-    // 5. 多维度打分
+    // 5. 给每句打分，并标记结构归属
     var scored = sentences.map(function(s, idx) {
+      var score = 0;
       var chars = s.match(/[\u4e00-\u9fa5]|[a-zA-Z0-9]+/g) || [];
-      var len = s.length;
 
-      // 维度一：词频得分（归一化）
-      var scoreFreq = 0;
+      // 5.1 词频得分（归一化）
       for (var k = 0; k < chars.length; k++) {
-        if (!STOP.has(chars[k])) scoreFreq += (freq[chars[k]] || 0);
+        if (!STOP.has(chars[k])) score += (freq[chars[k]] || 0);
       }
-      scoreFreq = scoreFreq / Math.max(chars.length, 1);
+      score = score / Math.max(chars.length, 1);
 
-      // 维度二：信号词得分
-      var scoreSignal = 0;
-      for (var m = 0; m < SIGNAL.length; m++) {
-        if (s.indexOf(SIGNAL[m]) !== -1) scoreSignal += 1.2;
+      // 5.2 结构信号词加分，并标记句子属于哪一段
+      var tag = 'other';
+      var maxHit = 0;
+
+      var causeHit = 0;
+      for (var a = 0; a < CAUSE.length; a++) {
+        if (s.indexOf(CAUSE[a]) !== -1) causeHit++;
+      }
+      var processHit = 0;
+      for (var b = 0; b < PROCESS.length; b++) {
+        if (s.indexOf(PROCESS[b]) !== -1) processHit++;
+      }
+      var resultHit = 0;
+      for (var c = 0; c < RESULT.length; c++) {
+        if (s.indexOf(RESULT[c]) !== -1) resultHit++;
       }
 
-      // 维度三：官方声明词降权
-      var scoreOfficial = 0;
-      for (var n = 0; n < OFFICIAL.length; n++) {
-        if (s.indexOf(OFFICIAL[n]) !== -1) scoreOfficial -= 5;
-      }
+      // 取命中最多的一类作为该句标签
+      if (causeHit > maxHit) { maxHit = causeHit; tag = 'cause'; }
+      if (processHit > maxHit) { maxHit = processHit; tag = 'process'; }
+      if (resultHit > maxHit) { maxHit = resultHit; tag = 'result'; }
 
-      // 维度四：转折词加分
-      var scoreTurn = 0;
-      for (var t = 0; t < TURN.length; t++) {
-        if (s.indexOf(TURN[t]) !== -1) scoreTurn += 1.5;
-      }
-
-      // 维度五：位置加权（首尾句是主旨高发区）
+      // 5.3 位置加权：靠前句更可能是起因
       var posRatio = idx / sentences.length;
-      var scorePos = 0;
-      if (posRatio < 0.2) scorePos += 1.2;          // 开头 20%
-      else if (posRatio < 0.4) scorePos += 0.6;     // 开头 20%~40%
-      else if (posRatio > 0.8) scorePos += 0.8;     // 结尾 20%
+      if (posRatio < 0.33) score += 1.0;
+      else if (posRatio < 0.66) score += 0.4;
 
-      // 维度六：长度惩罚
-      var scoreLen = 0;
-      if (len < 15) scoreLen -= 1.5;
-      else if (len > 120) scoreLen -= 0.8;
-      else if (len >= 30 && len <= 80) scoreLen += 0.5; // 适中长度加分
+      // 5.4 长度惩罚
+      var len = s.length;
+      if (len < 15) score -= 1.5;
+      else if (len > 150) score -= 0.8;
 
-      // 综合得分（各维度加权求和）
-      var totalScore =
-        scoreFreq * 0.35 +       // 词频权重最高
-        scoreSignal * 1.0 +      // 信号词很重要
-        scoreTurn * 0.8 +        // 转折词较重要
-        scorePos * 0.6 +         // 位置中等权重
-        scoreOfficial * 1.0 +    // 官方词直接降权
-        scoreLen * 0.5;          // 长度辅助
-
-      return { sentence: s, score: totalScore, index: idx };
+      return {
+        sentence: s,
+        score: score,
+        index: idx,
+        tag: tag,
+        posRatio: posRatio
+      };
     });
 
-    // 6. 选 top N 句，但要避免内容重复（多样性维度）
-    scored.sort(function(a, b) { return b.score - a.score; });
+    // 6. 保证每段至少抽 1 句
+    var causeList = scored.filter(function(x) { return x.tag === 'cause'; });
+    var processList = scored.filter(function(x) { return x.tag === 'process'; });
+    var resultList = scored.filter(function(x) { return x.tag === 'result'; });
 
+    // 按分数从高到低排序
+    causeList.sort(function(a, b) { return b.score - a.score; });
+    processList.sort(function(a, b) { return b.score - a.score; });
+    resultList.sort(function(a, b) { return b.score - a.score; });
+
+    var pickedSet = {};
     var picked = [];
-    for (var p = 0; p < scored.length && picked.length < pickCount; p++) {
-      var candidate = scored[p];
-      var isDuplicate = false;
-      for (var q = 0; q < picked.length; q++) {
-        // 如果两句有超过 60% 的字重复，视为重复
-        if (similarity(candidate.sentence, picked[q].sentence) > 0.6) {
-          isDuplicate = true;
-          break;
-        }
+
+    // 6.1 先保底选起因 1 句、经过 1 句、结果 1 句
+    if (causeList.length > 0) { picked.push(causeList[0]); pickedSet[causeList[0].index] = 1; }
+    if (processList.length > 0 && !pickedSet[processList[0].index]) { picked.push(processList[0]); pickedSet[processList[0].index] = 1; }
+    if (resultList.length > 0 && !pickedSet[resultList[0].index]) { picked.push(resultList[0]); pickedSet[resultList[0].index] = 1; }
+
+    // 6.2 如果三类都不足，用剩下的高分句补足
+    var remain = Math.max(pickCount - picked.length, 0);
+    var allSorted = scored.slice().sort(function(a, b) { return b.score - a.score; });
+    for (var m = 0; m < allSorted.length && remain > 0; m++) {
+      var item = allSorted[m];
+      if (!pickedSet[item.index]) {
+        picked.push(item);
+        pickedSet[item.index] = 1;
+        remain--;
       }
-      if (!isDuplicate) picked.push(candidate);
+    }
+
+    // 6.3 如果超过 pickCount，优先保留起因/经过/结果各至少 1 句，再按分数删
+    if (picked.length > pickCount) {
+      // 按分数排序，保留前 pickCount 个
+      picked.sort(function(a, b) { return b.score - a.score; });
+      picked = picked.slice(0, pickCount);
     }
 
     // 7. 按原文顺序拼接
     picked.sort(function(a, b) { return a.index - b.index; });
-    return picked.map(function(item) { return item.sentence; }).join('');
-  }
 
-  // 计算两句相似度（基于字符集合的 Jaccard 系数）
-  function similarity(a, b) {
-    var setA = new Set(a.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ''));
-    var setB = new Set(b.replace(/[^\u4e00-\u9fa5a-zA-Z0-9]/g, ''));
-    var intersection = 0;
-    setA.forEach(function(ch) {
-      if (setB.has(ch)) intersection++;
-    });
-    var union = setA.size + setB.size - intersection;
-    return union === 0 ? 0 : intersection / union;
+    return picked.map(function(item) { return item.sentence; }).join('');
   }
 
   // ============ 事件绑定 ============
