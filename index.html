@@ -41,12 +41,15 @@
     font-size: .95rem; font-weight: 500; cursor: pointer;
     color: #1e3f60; font-family: inherit; transition: .15s;
   }
-  button.primary { background: #1e4f7a; border-color: #1e4f7a; color: #fff; }
+  button.primary {
+    background: #1e4f7a; border-color: #1e4f7a; color: #fff;
+  }
   button.primary:hover { background: #0e3b5e; }
-  button.summary { background: #2e7d5e; border-color: #2e7d5e; color: #fff; }
+  button.summary {
+    background: #2e7d5e; border-color: #2e7d5e; color: #fff;
+  }
   button.summary:hover { background: #1f5e45; }
   button:not(.primary):not(.summary):hover { background: #e9f0f8; }
-  button:disabled { opacity: 0.5; cursor: not-allowed; }
   .slider {
     display: flex; align-items: center; gap: .8rem;
     background: #e8f0f9; padding: .4rem 1rem; border-radius: 40px;
@@ -60,6 +63,7 @@
   }
   .panel h2 {
     font-size: 1.15rem; color: #1f5e45; margin-bottom: .8rem;
+    display: flex; align-items: center; gap: .4rem;
   }
   .summary-text {
     font-size: 1rem; line-height: 1.8; color: #1a3f30;
@@ -87,9 +91,9 @@
 <body>
 <div class="container">
   <h1><span>AI</span>文本分析工具</h1>
-  <p class="sub">🔍 提取高频词组 · 📝 AI 智能总结</p>
+  <p class="sub">🔍 提取高频词组 · 📝 总结文本主要内容</p>
 
-  <textarea id="textInput" placeholder="在此粘贴文本...">人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。</textarea>
+  <textarea id="textInput" placeholder="在此粘贴文本...">人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。智能语音助手、计算机视觉都是人工智能的典型应用。人工智能与大数据、云计算紧密结合。人工智能伦理也越来越受到关注。</textarea>
 
   <div class="bar">
     <div class="btns">
@@ -120,9 +124,6 @@
 
 <script>
 (function() {
-  // ========== 配置：你的 Cloudflare Worker 地址 ==========
-  var WORKER_URL = 'https://open.bigmodel.cn/api/paas/v4/chat/completions';
-
   var textInput = document.getElementById('textInput');
   var extractBtn = document.getElementById('extractBtn');
   var summaryBtn = document.getElementById('summaryBtn');
@@ -142,10 +143,11 @@
     '无限','可能','语音','助手','计算','视觉','典型','数据','紧密','结合','伦理',
     '受到','关注','改变','世界','各个','方便','我们','他们','自己','可以','已经',
     '正在','一个','一些','很多','非常','特别','因为','所以','但是','如果','就是',
-    '机器人','互联网','大数据','云计算','计算机','机器学习','深度学习',
+    '机器人','互联网','大数据','云计算','计算机','智能语','机器学习','深度学习',
     '自然语言','计算机视觉','语音助手','无限可能','紧密结合','越来越'
   ]);
 
+  // 停用词
   var STOP = new Set(['的','了','是','在','和','就','都','也','还','与','及','或','而',
     '被','把','让','使','对','从','到','向','为','以','之','其','这','那','有','无',
     '不','很','更','最','会','能','要','可','等','着','过','吗','呢','吧','啊','正','在']);
@@ -231,53 +233,54 @@
     }
   }
 
-  // ============ AI 摘要API ============
-    async function summarizeWithAI(text) {
-    let response = await fetch(WORKER_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer c3ccc8c352854994951c2bf0b8d36069.7OSm7YGBY00kVGVV'
-      },
-      body: JSON.stringify({
-        model: 'glm-4.7-flash',
-        messages: [
-          { role: 'system', content: '你是一个专业的文本摘要助手。请用简洁的中文总结以下文本的主要内容，控制在150字以内，直接输出总结内容，不要加任何前缀。' },
-          { role: 'user', content: text }
-        ],
-        stream: false
-      })
+  // ============ 文本摘要（抽取式） ============
+  function summarize(text) {
+    if (!text || !text.trim()) return '';
+
+    // 1. 按中文标点切成句子
+    var sentences = text
+      .replace(/\s+/g, '')
+      .split(/(?<=[。！？!?；;])/)
+      .map(function(s) { return s.trim(); })
+      .filter(function(s) { return s.length >= 4; });
+
+    if (sentences.length === 0) return text.slice(0, 100);
+    if (sentences.length <= 2) return sentences.join('');
+
+    // 2. 统计词频（用单字 + 核心词）
+    var freq = {};
+    for (var i = 0; i < sentences.length; i++) {
+      var chars = sentences[i].match(/[\u4e00-\u9fa5]|[a-zA-Z0-9]+/g) || [];
+      for (var j = 0; j < chars.length; j++) {
+        var w = chars[j];
+        if (STOP.has(w)) continue;
+        freq[w] = (freq[w] || 0) + 1;
+      }
+    }
+
+    // 3. 给每句打分：词频总和 / 句子长度
+    var scored = sentences.map(function(s, idx) {
+      var chars = s.match(/[\u4e00-\u9fa5]|[a-zA-Z0-9]+/g) || [];
+      var score = 0;
+      for (var k = 0; k < chars.length; k++) {
+        if (!STOP.has(chars[k])) score += (freq[chars[k]] || 0);
+      }
+      // 除以长度做归一化，避免长句占优
+      var finalScore = score / Math.max(chars.length, 1);
+      // 靠前的句子稍微加权（文章开头通常是主旨）
+      if (idx === 0) finalScore *= 1.3;
+      return { sentence: s, score: finalScore, index: idx };
     });
 
-    // 429 限流时，等待 2 秒后自动重试一次
-    if (response.status === 429) {
-      await new Promise(function(r) { setTimeout(r, 2000); });
-      response = await fetch(WORKER_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer c3ccc8c352854994951c2bf0b8d36069.7OSm7YGBY00kVGVV'
-        },
-        body: JSON.stringify({
-          model: 'glm-4.7-flash',
-          messages: [
-            { role: 'system', content: '你是一个专业的文本摘要助手。请用简洁的中文总结以下文本的主要内容，控制在150字以内，直接输出总结内容，不要加任何前缀。' },
-            { role: 'user', content: text }
-          ],
-          stream: false
-        })
-      });
-    }
+    // 4. 选 top 3 句，按原文顺序拼接
+    scored.sort(function(a, b) { return b.score - a.score; });
+    var topN = Math.min(3, scored.length);
+    var picked = scored.slice(0, topN);
+    picked.sort(function(a, b) { return a.index - b.index; });
 
-    if (!response.ok) {
-      throw new Error('HTTP ' + response.status);
-    }
-    var data = await response.json();
-    if (!data.choices || !data.choices[0]) {
-      throw new Error('返回数据异常');
-    }
-    return data.choices[0].message.content;
+    return picked.map(function(item) { return item.sentence; }).join('');
   }
+
   // ============ 事件绑定 ============
   extractBtn.addEventListener('click', function() {
     var text = textInput.value;
@@ -285,26 +288,15 @@
     render(extractPhrases(text, minCount));
   });
 
-  summaryBtn.addEventListener('click', async function() {
+  summaryBtn.addEventListener('click', function() {
     var text = textInput.value;
-    if (!text.trim()) {
-      summaryPanel.style.display = 'block';
-      summaryText.textContent = '请先输入文本。';
-      return;
-    }
-
-    summaryPanel.style.display = 'block';
-    summaryText.textContent = '正在总结，请稍候...';
-    summaryBtn.disabled = true;
-
-    try {
-      var summary = await summarizeWithAI(text);
+    var summary = summarize(text);
+    if (!summary) {
+      summaryText.textContent = '没有可总结的内容，请先输入文本。';
+    } else {
       summaryText.textContent = summary;
-    } catch (e) {
-      summaryText.textContent = '总结失败：' + e.message + '\n\n请检查：\n1. Worker 地址是否已替换\n2. Worker 是否已部署并设置好 API Key\n3. 浏览器控制台是否有报错';
-    } finally {
-      summaryBtn.disabled = false;
     }
+    summaryPanel.style.display = 'block';
   });
 })();
 </script>
