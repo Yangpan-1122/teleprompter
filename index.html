@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI 文本词组提取 · 高频词组抓取</title>
+  <style>
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: linear-gradient(145deg, #f6f9fc 0%, #edf2f9 100%);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+    }
+
+    .app-container {
+      max-width: 1100px;
+      width: 100%;
+      background: rgba(255, 255, 255, 0.8);
+      backdrop-filter: blur(10px);
+      -webkit-backdrop-filter: blur(10px);
+      border-radius: 2.5rem;
+      padding: 2rem 2rem 2.5rem;
+      box-shadow: 0 20px 40px -12px rgba(0, 20, 40, 0.3), 0 1px 3px rgba(0,0,0,0.05);
+      border: 1px solid rgba(255, 255, 255, 0.6);
+      transition: all 0.2s;
+    }
+
+    h1 {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-weight: 600;
+      font-size: 2rem;
+      letter-spacing: -0.02em;
+      color: #0b2b4a;
+      margin-bottom: 0.35rem;
+    }
+
+    h1 span {
+      background: #1e4f7a;
+      color: white;
+      font-size: 1rem;
+      font-weight: 500;
+      padding: 0.2rem 1rem;
+      border-radius: 40px;
+      letter-spacing: 0.3px;
+      background: linear-gradient(135deg, #1e4f7a, #1d6f9c);
+      box-shadow: 0 4px 8px rgba(0, 60, 100, 0.2);
+    }
+
+    .subhead {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 1.75rem;
+      color: #3c5a73;
+      border-bottom: 1px solid rgba(100, 140, 180, 0.2);
+      padding-bottom: 0.75rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .subhead p {
+      font-size: 0.98rem;
+      opacity: 0.8;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .badge {
+      background: #e5eff9;
+      border-radius: 20px;
+      padding: 0.2rem 0.85rem;
+      font-size: 0.8rem;
+      font-weight: 500;
+      color: #1e4f7a;
+    }
+
+    .input-section {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      margin-bottom: 1.5rem;
+    }
+
+    label {
+      font-size: 0.9rem;
+      font-weight: 500;
+      color: #1e3a5f;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    textarea {
+      width: 100%;
+      padding: 1.2rem 1.5rem;
+      border-radius: 1.8rem;
+      border: 1.5px solid #d9e6f2;
+      background: #ffffffd9;
+      backdrop-filter: blur(4px);
+      font-size: 1rem;
+      line-height: 1.6;
+      resize: vertical;
+      min-height: 170px;
+      font-family: inherit;
+      transition: 0.2s;
+      box-shadow: inset 0 2px 6px rgba(0,0,0,0.02);
+      color: #0b2b3f;
+    }
+
+    textarea:focus {
+      outline: none;
+      border-color: #4f8bc9;
+      box-shadow: 0 0 0 4px rgba(79, 139, 201, 0.15), inset 0 2px 6px rgba(0,0,0,0.02);
+      background: #ffffff;
+    }
+
+    .action-bar {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      margin-top: 0.25rem;
+    }
+
+    .left-actions {
+      display: flex;
+      gap: 0.6rem;
+    }
+
+    button {
+      background: white;
+      border: 1.5px solid #cbdae9;
+      border-radius: 3rem;
+      padding: 0.7rem 1.5rem;
+      font-weight: 500;
+      font-size: 0.95rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      cursor: pointer;
+      transition: 0.15s;
+      color: #1e3f60;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+      font-family: inherit;
+    }
+
+    button.primary {
+      background: #1e4f7a;
+      border: 1.5px solid #1e4f7a;
+      color: white;
+      box-shadow: 0 8px 16px -6px rgba(30, 79, 122, 0.3);
+    }
+
+    button.primary:hover {
+      background: #0e3b5e;
+      border-color: #0e3b5e;
+      transform: translateY(-1px);
+      box-shadow: 0 12px 18px -8px rgba(30, 79, 122, 0.4);
+    }
+
+    button.primary:active {
+      transform: translateY(1px);
+      box-shadow: 0 4px 8px -4px rgba(30, 79, 122, 0.4);
+    }
+
+    button:not(.primary):hover {
+      background: #e9f0f8;
+      border-color: #a9c1d9;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      pointer-events: none;
+      filter: grayscale(0.4);
+    }
+
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      background: #e8f0f9;
+      padding: 0.4rem 1rem 0.4rem 1.5rem;
+      border-radius: 40px;
+      border: 1px solid #cddef0;
+    }
+
+    .slider-container label {
+      font-size: 0.9rem;
+      white-space: nowrap;
+      color: #1e4a72;
+      font-weight: 500;
+      margin: 0;
+    }
+
+    input[type="range"] {
+      width: 150px;
+      height: 5px;
+      border-radius: 10px;
+      background: #c1d6ea;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #1e4f7a;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      border: 2px solid white;
+    }
+
+    .count-badge {
+      background: white;
+      border-radius: 30px;
+      padding: 0.2rem 0.9rem;
+      font-weight: 600;
+      color: #1e4f7a;
+      font-size: 0.9rem;
+      border: 1px solid #c1d6ea;
+      min-width: 45px;
+      text-align: center;
+    }
+
+    .results-section {
+      margin-top: 2rem;
+      background: #ffffffc7;
+      border-radius: 2rem;
+      padding: 1.6rem 1.8rem 1.8rem;
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      box-shadow: inset 0 1px 4px rgba(255, 255, 255, 0.8), 0 6px 14px -6px rgba(30, 50, 70, 0.15);
+    }
+
+    .results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.2rem;
+    }
+
+    .results-header h2 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: #173f5c;
+      letter-spacing: -0.3px;
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .results-header h2 i {
+      font-size: 1.4rem;
+    }
+
+    .stats {
+      font-size: 0.9rem;
+      color: #456f94;
+      background: #deecf9;
+      padding: 0.25rem 1rem;
+      border-radius: 50px;
+      font-weight: 500;
+    }
+
+    .phrases-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      max-height: 380px;
+      overflow-y: auto;
+      padding-right: 0.4rem;
+      scrollbar-width: thin;
+      scrollbar-color: #b0c7dd #e2ecf6;
+    }
+
+    .phrases-grid::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .phrases-grid::-webkit-scrollbar-track {
+      background: #e2ecf6;
+      border-radius: 10px;
+    }
+
+    .phrases-grid::-webkit-scrollbar-thumb {
+      background: #b0c7dd;
+      border-radius: 10px;
+    }
+
+    .phrase-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: white;
+      padding: 0.75rem 1.2rem;
+      border-radius: 1.2rem;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02);
+      border: 1px solid #e2eefb;
+      transition: 0.1s;
+      animation: fadeIn 0.25s ease;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .phrase-item:hover {
+      border-color: #9bb9d8;
+      background: #f8fcff;
+    }
+
+    .phrase-text {
+      font-weight: 500;
+      color: #133d5b;
+      font-size: 1.05rem;
+      word-break: break-word;
+      padding-right: 1rem;
+    }
+
+    .phrase-count {
+      background: #d4e4f5;
+      color: #12426b;
+      font-weight: 600;
+      border-radius: 40px;
+      padding: 0.25rem 1rem;
+      font-size: 0.9rem;
+      white-space: nowrap;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      border: 1px solid #bbd2ea;
+    }
+
+    .empty-state {
+      text-align: center;
+      color: #6d8aa8;
+      padding: 2.5rem 1rem;
+      font-size: 1rem;
+      background: #f2f8fe;
+      border-radius: 1.5rem;
+      border: 1px dashed #bbd2ea;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .empty-state i {
+      font-size: 2rem;
+      opacity: 0.5;
+      font-style: normal;
+    }
+
+    .footer-note {
+      text-align: right;
+      font-size: 0.75rem;
+      color: #7f9ab5;
+      margin-top: 1rem;
+      padding-right: 0.5rem;
+    }
+
+    .icon {
+      font-style: normal;
+    }
+  </style>
+</head>
+<body>
+<div class="app-container">
+  <h1>
+    <span>AI</span> 词组提取器
+  </h1>
+  <div class="subhead">
+    <p>🔍 根据文本内容，抓取出现次数较多的词组</p>
+    <div class="badge">基于 n-gram 频率分析</div>
+  </div>
+
+  <div class="input-section">
+    <label for="textInput">📄 输入文本</label>
+    <textarea id="textInput" placeholder="例如：人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心……">人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。</textarea>
+    <div class="action-bar">
+      <div class="left-actions">
+        <button class="primary" id="extractBtn">
+          <span class="icon">⚡</span> 提取高频词组
+        </button>
+        <button id="clearBtn">
+          <span class="icon">🧹</span> 清空
+        </button>
+        <button id="exampleBtn">
+          <span class="icon">📋</span> 示例
+        </button>
+      </div>
+      <div class="slider-container">
+        <label for="minCount">最少出现</label>
+        <input type="range" id="minCount" min="1" max="10" value="2" step="1">
+        <span class="count-badge" id="minCountValue">2</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="results-section" id="resultsSection">
+    <div class="results-header">
+      <h2><i>📊</i> 高频词组</h2>
+      <div class="stats" id="statsText">共 0 个词组</div>
+    </div>
+    <div class="phrases-grid" id="phrasesGrid">
+      <div class="empty-state">
+        <i>🔎</i>
+        点击「提取高频词组」查看结果
+      </div>
+    </div>
+    <div class="footer-note">
+      * 词组长度 2~5 个词，按出现频次降序排列
+    </div>
+  </div>
+</div>
+<script>
+  (function() {
+    const textInput = document.getElementById('textInput');
+    const extractBtn = document.getElementById('extractBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const exampleBtn = document.getElementById('exampleBtn');
+    const minCountSlider = document.getElementById('minCount');
+    const minCountValue = document.getElementById('minCountValue');
+    const phrasesGrid = document.getElementById('phrasesGrid');
+    const statsText = document.getElementById('statsText');
+
+    // 更新滑块显示值
+    minCountSlider.addEventListener('input', function(e) {
+      minCountValue.textContent = e.target.value;
+    });
+
+    // 清空
+    clearBtn.addEventListener('click', function() {
+      textInput.value = '';
+      renderResults([]); // 清空结果
+    });
+
+    // 示例文本
+    const EXAMPLE_TEXT = `人工智能正在改变世界。人工智能技术应用于各个领域，人工智能让生活更便捷。机器学习是人工智能的核心，深度学习推动人工智能发展。自然语言处理是人工智能的重要方向。人工智能的未来充满无限可能。智能语音助手、计算机视觉都是人工智能的典型应用。人工智能与大数据、云计算紧密结合。人工智能伦理也越来越受到关注。`;
+
+    exampleBtn.addEventListener('click', function() {
+      textInput.value = EXAMPLE_TEXT;
+    });
+
+    // 核心提取函数
+    function extractPhrases(text, minCount = 2) {
+      if (!text || text.trim() === '') return [];
+
+      // 1. 清洗文本：保留中文、英文、数字，其他符号转为空格 (但保留连字符、下划线? 为了词组边界，统一将标点转为空格)
+      // 同时将文本转为小写以统一大小写，但保留原始输出可以用小写
+      const cleanText = text
+        .toLowerCase()
+        .replace(/[^\w\u4e00-\u9fa5\s-]/g, ' ')  // 非单词、非中文、非空白、非连字符的字符替换为空格
+        .replace(/\s+/g, ' ')                     // 多个空格合并为一个
+        .trim();
+
+      if (cleanText.length === 0) return [];
+
+      // 2. 分词：按空格分割，过滤掉空字符串
+      const tokens = cleanText.split(' ').filter(token => token.length > 0);
+      if (tokens.length === 0) return [];
+
+      // 3. 统计词组 (n-gram) 2 <= n <= 5
+      const phraseMap = new Map();
+
+      for (let n = 2; n <= 5; n++) {
+        if (tokens.length < n) continue; // 长度不够
+
+        for (let i = 0; i <= tokens.length - n; i++) {
+          const phrase = tokens.slice(i, i + n).join(' ');
+          // 忽略全是单字符且不含中文的情况? 但没必要，保留原始词组合
+          // 但是为了可读，防止纯数字或单字母组合太多，可以加一点过滤？保留吧，用户自己定义。
+          // 但可以考虑过滤掉完全由单个字母/数字组成的无意义词组？但会丢失“ai 技术”这种。所以不额外过滤。
+          // 不过我们可以过滤掉太长的标点痕迹，但已经清洗过了。
+          phraseMap.set(phrase, (phraseMap.get(phrase) || 0) + 1);
+        }
+      }
+
+      // 4. 转为数组，过滤掉出现次数小于 minCount 的
+      const result = [];
+      for (const [phrase, count] of phraseMap.entries()) {
+        if (count >= minCount) {
+          result.push({ phrase, count });
+        }
+      }
+
+      // 5. 按频次降序，如果频次相同，按长度降序(长词组优先) ，或字母顺序
+      result.sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        // 频次相同：较长的词组优先展示（更有信息量）
+        if (b.phrase.length !== a.phrase.length) return b.phrase.length - a.phrase.length;
+        return a.phrase.localeCompare(b.phrase);
+      });
+
+      return result;
+    }
+
+    // 渲染结果到界面
+    function renderResults(phrases) {
+      phrasesGrid.innerHTML = '';
+      const count = phrases.length;
+      statsText.textContent = `共 ${count} 个词组`;
+
+      if (count === 0) {
+        phrasesGrid.innerHTML = `
+          <div class="empty-state">
+            <i>📭</i>
+            没有符合条件的词组，试试降低“最少出现”次数或输入更多文本
+          </div>
+        `;
+        return;
+      }
+
+      // 使用 documentFragment 优化性能
+      const fragment = document.createDocumentFragment();
+      phrases.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'phrase-item';
+
+        const textSpan = document.createElement('span');
+        textSpan.className = 'phrase-text';
+        textSpan.textContent = item.phrase;
+
+        const countSpan = document.createElement('span');
+        countSpan.className = 'phrase-count';
+        countSpan.textContent = `出现 ${item.count} 次`;
+
+        div.appendChild(textSpan);
+        div.appendChild(countSpan);
+        fragment.appendChild(div);
+      });
+
+      phrasesGrid.appendChild(fragment);
+    }
+
+    // 提取并展示
+    function extractAndRender() {
+      const text = textInput.value;
+      const minCount = parseInt(minCountSlider.value, 10) || 2;
+      const phrases = extractPhrases(text, minCount);
+      renderResults(phrases);
+    }
+
+    // 提取按钮点击事件
+    extractBtn.addEventListener('click', extractAndRender);
+
+    // 可选：按 Ctrl+Enter 快捷提取
+    textInput.addEventListener('keydown', function(e) {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+        e.preventDefault();
+        extractAndRender();
+      }
+    });
+
+    // 初始化时如果文本框有内容，可以自动提取一次（提升体验）
+    window.addEventListener('DOMContentLoaded', function() {
+      if (textInput.value.trim() !== '') {
+        // 延迟一下确保渲染
+        setTimeout(extractAndRender, 20);
+      } else {
+        // 默认展示空状态
+        renderResults([]);
+      }
+    });
+
+    // 监听滑块变化，如果当前有结果可以自动刷新（可选，但可能会让用户觉得太频繁，暂时不做实时刷新）
+    // 但为了体验，可以在滑块释放后更新结果（视情况，但会打扰用户，跳过）
+    // 不做自动刷新，用户点击提取即可。
+  })();
+</script>
+</body>
+</html>
