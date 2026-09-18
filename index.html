@@ -126,18 +126,38 @@
 
   function extractPhrases(text, minCount) {
     if (!text || !text.trim()) return [];
+
+    // 1. 清洗：保留中文、英文、数字，其余转空格
     var clean = text.toLowerCase()
-      .replace(/[^\w\u4e00-\u9fa5\s]/g, ' ')
-      .replace(/\s+/g, ' ').trim();
-    var tokens = clean.split(' ').filter(function(t) { return t.length > 0; });
+      .replace(/[^\u4e00-\u9fa5a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // 2. 切分：中文按"字"处理，英文数字按"单词"处理
+    var tokens = [];
+    // 匹配连续中文 或 连续英文数字
+    var regex = /[\u4e00-\u9fa5]|[a-z0-9]+/g;
+    var match;
+    while ((match = regex.exec(clean)) !== null) {
+      tokens.push(match[0]);
+    }
+    if (tokens.length === 0) return [];
+
+    // 3. 统计 2~5 个连续 token 组成的词组
     var map = {};
     for (var n = 2; n <= 5; n++) {
       if (tokens.length < n) continue;
       for (var i = 0; i <= tokens.length - n; i++) {
-        var phrase = tokens.slice(i, i + n).join(' ');
+        var phrase = tokens.slice(i, i + n).join('');
+        // 英文单词之间保留空格更易读，中文直接拼接
+        if (/^[a-z0-9]+$/.test(tokens[i])) {
+          phrase = tokens.slice(i, i + n).join(' ');
+        }
         map[phrase] = (map[phrase] || 0) + 1;
       }
     }
+
+    // 4. 过滤 + 排序
     var result = [];
     for (var key in map) {
       if (map[key] >= minCount) result.push({ phrase: key, count: map[key] });
